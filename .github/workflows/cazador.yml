@@ -1,0 +1,39 @@
+name: Cazador OCI
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: cazador
+  cancel-in-progress: false
+
+jobs:
+  cazar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: Instalar OCI CLI
+        run: pip install oci-cli
+      - name: Configurar credenciales
+        env:
+          OCI_KEY: ${{ secrets.OCI_KEY }}
+          SSH_PUB: ${{ secrets.SSH_PUB }}
+          OCI_USER: ${{ secrets.OCI_USER }}
+          OCI_FINGERPRINT: ${{ secrets.OCI_FINGERPRINT }}
+          OCI_TENANCY: ${{ secrets.OCI_TENANCY }}
+        run: |
+          mkdir -p ~/.oci
+          printf '%s\n' "$OCI_KEY" > ~/.oci/oci_api_key.pem
+          chmod 600 ~/.oci/oci_api_key.pem
+          printf '%s\n' "$SSH_PUB" > ~/.oci/ssh.pub
+          printf '[DEFAULT]\nuser=%s\nfingerprint=%s\ntenancy=%s\nregion=sa-santiago-1\nkey_file=%s\n' \
+            "$OCI_USER" "$OCI_FINGERPRINT" "$OCI_TENANCY" "$HOME/.oci/oci_api_key.pem" > ~/.oci/config
+      - name: Intentar crear instancia
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+          TENANCY: ${{ secrets.OCI_TENANCY }}
+          SUBNET_ID: ${{ vars.SUBNET_ID }}
+          AD: ${{ vars.AD }}
+        run: bash cazador.sh
