@@ -33,6 +33,8 @@ jobs:
       - name: Intentar crear instancia
         env:
           DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
           TENANCY: ${{ secrets.OCI_TENANCY }}
           SUBNET_ID: ${{ vars.SUBNET_ID }}
           AD: ${{ vars.AD }}
