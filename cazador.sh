@@ -3,10 +3,11 @@ export SUPPRESS_LABEL_WARNING=True
 SSH_KEY="$HOME/.oci/ssh.pub"
 
 notify() {
-  [ -n "$DISCORD_WEBHOOK" ] && curl -s -H "Content-Type: application/json" \
-    -d "{\"content\":\"$1\"}" "$DISCORD_WEBHOOK" > /dev/null
+  [ -z "$DISCORD_WEBHOOK" ] && return
+  curl -s -H "Content-Type: application/json" \
+    -d "$(jq -n --arg c "$1" '{content:$c}')" \
+    "$DISCORD_WEBHOOK" > /dev/null
 }
-
 EXISTE=$(oci compute instance list --compartment-id "$TENANCY" \
   --display-name homelab-a1 \
   --query "data[?\"lifecycle-state\"!='TERMINATED'] | length(@)" \
