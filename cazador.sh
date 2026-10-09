@@ -35,15 +35,25 @@ SALIDA=$(oci compute instance launch \
   --ssh-authorized-keys-file "$SSH_KEY" 2>&1)
 RC=$?
 
+ESTADO="desconocido"
+
 if [[ $RC -eq 0 && "$SALIDA" == *"ocid1.instance"* ]]; then
   echo "ÉXITO"
-  notify "✅ ¡Instancia A1 creada en Oracle Santiago! Revisa la consola."
+  notify "✅ @everyone ¡Instancia A1 creada en Oracle Santiago! Revisa la consola."
+  exit 0
 elif [[ "${SALIDA,,}" == *"capacity"* ]]; then
-  echo "Sin stock."
+  ESTADO="sin stock"
 elif [[ "$SALIDA" == *"TooManyRequests"* ]]; then
-  echo "Rate limit, se reintenta en la próxima ejecución."
+  ESTADO="rate limit"
 else
   echo "Error distinto:"; echo "$SALIDA"
-  notify "⚠️ Cazador OCI: error inesperado, revisa los logs de Actions."
+  notify "⚠️ Cazador OCI: error inesperado. Revisa los logs: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
   exit 1
+fi
+
+echo "$ESTADO"
+
+# Resumen de progreso cada 72 ejecuciones
+if [ $((GITHUB_RUN_NUMBER % 72)) -eq 0 ]; then
+  notify "🔎 Cazador OCI sigue activo. Ejecución #$GITHUB_RUN_NUMBER, último resultado: $ESTADO."
 fi
