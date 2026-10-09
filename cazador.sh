@@ -1,13 +1,37 @@
 #!/bin/bash
 export SUPPRESS_LABEL_WARNING=True
 SSH_KEY="$HOME/.oci/ssh.pub"
+RUN_URL="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
 
+# Mensaje al canal (progreso)
 notify() {
-  [ -z "$DISCORD_WEBHOOK" ] && return
-  curl -s -H "Content-Type: application/json" \
-    -d "$(jq -n --arg c "$1" '{content:$c}')" \
-    "$DISCORD_WEBHOOK" > /dev/null
+  if [ -n "$DISCORD_WEBHOOK" ]; then
+    curl -s -H "Content-Type: application/json" \
+      -d "$(jq -n --arg c "$1" '{content:$c}')" \
+      "$DISCORD_WEBHOOK" > /dev/null || true
+  fi
+  return 0
 }
+
+# Mensaje directo (solo éxito)
+notify_dm() {
+  if [ -n "$DISCORD_BOT_TOKEN" ] && [ -n "$DISCORD_USER_ID" ]; then
+    CH=$(curl -s -X POST "https://discord.com/api/v10/users/@me/channels" \
+      -H "Authorization: Bot $DISCORD_BOT_TOKEN" \
+      -H "Content-Type: application/json" \
+      -d "{\"recipient_id\":\"$DISCORD_USER_ID\"}" | jq -r '.id // empty')
+    if [ -n "$CH" ]; then
+      curl -s -X POST "https://discord.com/api/v10/channels/$CH/messages" \
+        -H "Authorization: Bot $DISCORD_BOT_TOKEN" \
+        -H "Content-Type: application/json" \
+        -d "$(jq -n --arg c "$1" '{content:$c}')" > /dev/null || true
+    fi
+  fi
+  return 0
+}
+
+HORA=$(TZ="America/Santiago" date '+%H:%M')
+
 EXISTE=$(oci compute instance list --compartment-id "$TENANCY" \
   --display-name homelab-a1 \
   --query "data[?\"lifecycle-state\"!='TERMINATED'] | length(@)" \
@@ -21,8 +45,13 @@ IMAGE_ID=$(oci compute image list --compartment-id "$TENANCY" \
   --operating-system "Canonical Ubuntu" --operating-system-version "24.04" \
   --shape VM.Standard.A1.Flex --sort-by TIMECREATED --sort-order DESC \
   --query 'data[0].id' --raw-output 2>/dev/null)
-[ -z "$IMAGE_ID" ] && { echo "No pude obtener la imagen"; exit 1; }
+if [ -z "$IMAGE_ID" ]; then
+  echo "No pude obtener la imagen"
+  notify "⚠️ [$HORA] No pude obtener la imagen: $RUN_URL"
+  exit 1
+fi
 
+set +e
 SALIDA=$(oci compute instance launch \
   --availability-domain "$AD" \
   --compartment-id "$TENANCY" \
@@ -34,26 +63,21 @@ SALIDA=$(oci compute instance launch \
   --assign-public-ip true \
   --ssh-authorized-keys-file "$SSH_KEY" 2>&1)
 RC=$?
-
-ESTADO="desconocido"
+set -e
 
 if [[ $RC -eq 0 && "$SALIDA" == *"ocid1.instance"* ]]; then
   echo "ÉXITO"
-  notify "✅ @everyone ¡Instancia A1 creada en Oracle Santiago! Revisa la consola."
+  notify "✅ [$HORA] Intento #$GITHUB_RUN_NUMBER: ¡instancia creada!"
+  notify_dm "🎉 ¡Tu instancia A1 en Oracle Santiago fue creada! Revisa la consola. Run #$GITHUB_RUN_NUMBER: $RUN_URL"
   exit 0
 elif [[ "${SALIDA,,}" == *"capacity"* ]]; then
-  ESTADO="sin stock"
+  echo "Sin stock."
+  notify "❌ [$HORA] Intento #$GITHUB_RUN_NUMBER: sin stock"
 elif [[ "$SALIDA" == *"TooManyRequests"* ]]; then
-  ESTADO="rate limit"
+  echo "Rate limit, se reintenta en la próxima ejecución."
+  notify "⏳ [$HORA] Intento #$GITHUB_RUN_NUMBER: rate limit"
 else
   echo "Error distinto:"; echo "$SALIDA"
-  notify "⚠️ Cazador OCI: error inesperado. Revisa los logs: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+  notify "⚠️ [$HORA] Intento #$GITHUB_RUN_NUMBER: error inesperado: $RUN_URL"
   exit 1
-fi
-
-echo "$ESTADO"
-
-# Resumen de progreso cada 72 ejecuciones
-if [ $((GITHUB_RUN_NUMBER % 72)) -eq 0 ]; then
-  notify "🔎 Cazador OCI sigue activo. Ejecución #$GITHUB_RUN_NUMBER, último resultado: $ESTADO."
 fi
